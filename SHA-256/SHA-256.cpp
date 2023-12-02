@@ -1,11 +1,10 @@
-﻿// SHA-256.cpp : Этот файл содержит функцию "main". Здесь начинается и заканчивается выполнение программы.
-//
-
-#include <iostream>
+﻿#include <iostream>
 #include <vector>
 #include <array>
 #include <fstream>
 #include <string>
+#include <sstream>
+#include <iomanip>
 
 using std::string;
 using std::vector;
@@ -41,14 +40,8 @@ void ExpensionBlock(std::array<uint32_t, 64>& block)
 
 void init_table(std::array<uint32_t, 64>& block, unsigned char bytes[64])
 {
-    //int mod = count % 4;
-
     for (int i = 0; i < 16; i++)
     {
-        /*char temp1 = bytes[(i * 4) + 3];
-        char temp2 = bytes[(i * 4) + 2] << 8;
-        char temp3 = bytes[(i * 4) + 1] << 16;
-        char temp4 = bytes[(i * 4)] << 24;*/
         block[i] = (bytes[(i * 4) + 3]) | (bytes[(i * 4) + 2] << 8) | (bytes[(i * 4) + 1] << 16) | (bytes[(i * 4)] << 24);
     }
 }
@@ -146,19 +139,24 @@ void write_to_bytes_array(unsigned char bytes[], uint64_t count)
     bytes[58] = count >> 40;
     bytes[57] = count >> 48;
     bytes[56] = count >> 56;
-
-
 }
 
 
-void Calculate()
+void Calculate(unsigned char bytes[], uint32_t H[])
 {
+    //По-быстрому сделал пока так
+    std::vector<std::array <uint32_t, 64>> blocks(1);
 
+    init_table(blocks[0], bytes);
+
+    ExpensionBlock(blocks[0]);
+
+    compress(blocks[0], H);
 }
 
-int main()
+//Писал наспех, поэтому очень грязно
+std::string SHA_256(string filename)
 {
-
     std::string line;
 
     unsigned char bytes[64];
@@ -168,39 +166,17 @@ int main()
     uint32_t H[8] = { 0x6a09e667, 0xbb67ae85 , 0x3c6ef372 , 0xa54ff53a , 0x510e527f , 0x9b05688c , 0x1f83d9ab , 0x5be0cd19 };
 
     std::ifstream in; // окрываем файл для чтения
-    in.open("IMG_20230517_191956.jpg", std::ios::in | std::ios::binary);
+    in.open(filename, std::ios::in | std::ios::binary);
     if (in.is_open())
     {
-        /*while (std::getline(in, line))
-        {
-            std::cout << line << std::endl;
-        }*/
-        
-        /*uint32_t a = H[0];
-        uint32_t b = H[1];
-        uint32_t c = H[2];
-        uint32_t d = H[3];
-        uint32_t e = H[4];
-        uint32_t f = H[5];
-        uint32_t g = H[6];
-        uint32_t h = H[7];*/
 
         while (in.read((char*)bytes, 64))
         {
             int temp_count = in.gcount();
             file_count_bytes += temp_count;
 
-            //uint32_t temp = (bytes[3]) | (bytes[2] << 8) | (bytes[1] << 16) | (bytes[0] << 24);
-            //little_to_big_convert(temp);
-            
-            //Делал по-быстрому, поэтому пока так
-            std::vector<std::array <uint32_t, 64>> blocks(1);
+            Calculate(bytes, H);
 
-            init_table(blocks[0], bytes);
-
-            ExpensionBlock(blocks[0]);
-
-            compress(blocks[0], H);
         }
         int temp_count = in.gcount();
         file_count_bytes += temp_count; //Последние байты
@@ -210,8 +186,6 @@ int main()
             int a = 5;
             //Надо добавить ещё один блок и заполнить нулями до конца
 
-            std::vector<std::array <uint32_t, 64>> blocks(1);
-
             for (int i = temp_count; i < 64; i++)
             {
                 bytes[i] = 0x00;
@@ -219,43 +193,58 @@ int main()
 
             bytes[temp_count] = 0x80;
             temp_count = -1;
-            //write_to_bytes_array(bytes, file_count_bytes * 8);
 
-            init_table(blocks[0], bytes);
-            
-            ExpensionBlock(blocks[0]);
+            Calculate(bytes, H);
 
-            compress(blocks[0], H);
+        }
+        //В конце добавляем последний блок данных. После данных один байт 0x80, в конце 8 байт file_count_bytes
+
+
+        for (int i = temp_count + 1; i < 64 - 8; i++)
+        {
+            bytes[i] = 0x00;
+        }
+        if (temp_count != -1)
+        {
+            bytes[temp_count] = 0x80;
         }
 
-        //В конце добавляем последний блок данных. После данных один байт 0x80, в конце 8 байт file_count_bytes
-            std::vector<std::array <uint32_t, 64>> blocks(1);
 
-                
+        write_to_bytes_array(bytes, file_count_bytes * 8);
+        //Таблица заполнена. Обрабатываем
+        Calculate(bytes, H);
 
-
-
-            for (int i = temp_count+1; i < 64-8; i++)
-            {
-                bytes[i] = 0x00;
-            }
-            if (temp_count != -1)
-            {
-                bytes[temp_count] = 0x80;
-            }
-
-
-            write_to_bytes_array(bytes, file_count_bytes * 8);
-            init_table(blocks[0], bytes);
-            
-            //Таблица заполнена. Обрабатываем
-            //
-            ExpensionBlock(blocks[0]);
-
-            compress(blocks[0], H);
     }
     in.close();     // закрываем файл
     
+    //Перевод hex в string
+    std::stringstream ss;
+    ss << std::hex;
+
+    for (int i(0); i < 8; ++i)
+        ss << std::setw(2) << std::setfill('0') << (int)H[i];
+
+    return ss.str();
+}
+
+
+int main()
+{
+    setlocale(LC_ALL, "Russian");
+    //Проверка целостности файла copy.bin путем сравнения его
+    //хэш-кода с хэш-кодом оригинала
+    string orig = SHA_256("input.txt");
+    string copy = SHA_256("input.txt");
+    
+
+    if (orig.compare(copy)==0)
+    {
+        std::cout << "Все в порядке\n";
+    }
+    else
+    {
+        std::cout << "Файлы отличаются\n";
+    }
 }
 
 
